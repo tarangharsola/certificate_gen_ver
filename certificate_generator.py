@@ -15,6 +15,16 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import Paragraph
 from PIL import Image, ImageDraw, ImageFont
+from reportlab.lib.utils import ImageReader
+import io
+
+# qrcode is optional; if not installed we'll disable QR functionality at runtime
+try:
+    import qrcode
+    _HAS_QR = True
+except Exception:
+    qrcode = None
+    _HAS_QR = False
 import click
 
 
@@ -140,16 +150,77 @@ class CertificateGenerator:
         c.setFillColor(colors.HexColor(accent_hex))
         c.drawCentredString(page_width / 2, page_height - 3.9 * inch, course_name)
         
-        # Add issue date and certificate number
-        c.setFont("Helvetica", 12)
-        c.setFillColor(colors.HexColor(hex_color))
-        c.drawString(0.8 * inch, 0.8 * inch, f"Certificate #: {certificate_number}")
-        c.drawRightString(page_width - 0.8 * inch, 0.8 * inch, f"Date: {issue_date}")
-        
-        # Add issuer
+        # Layout bottom metadata band to avoid overlaps between QR / date / issuer
+        qr_enabled = bool(self.template_config.get("qr", True)) and _HAS_QR
+        if self.template_config.get("qr", True) and not _HAS_QR:
+            try:
+                # use click if available to print a friendly warning; fall back to print
+                click.echo("Warning: 'qrcode' package not installed — QR codes disabled. Install with: pip install qrcode")
+            except Exception:
+                print("Warning: 'qrcode' package not installed — QR codes disabled. Install with: pip install qrcode")
+        qr_size = float(self.template_config.get("qr_size", 1.0))  # inches
+        qr_margin = float(self.template_config.get("qr_margin", 0.6))  # inches
+
+        # Compute bottom band height needed to fit QR (if enabled)
+        required_qr_height = (qr_margin + qr_size + 0.2) * inch if qr_enabled else 0.0
+        default_band = 1.0 * inch
+        bottom_band_height = 324
+
+        # Position issuer above the bottom band with a small gap
+        issuer_y = bottom_band_height + 10 * inch +220
+
+        # Draw issuer
         issuer = self.template_config.get("issuer", "Certificate Authority")
         c.setFont("Helvetica-Bold", 14)
-        c.drawString(0.8 * inch, 1.2 * inch, f"Issued by: {issuer}")
+        c.drawString(0.8 * inch, issuer_y, f"Issued by: {issuer}")
+
+        # Determine metadata vertical center inside bottom band
+        metadata_y = bottom_band_height / 2.0
+
+        # Add issue date and certificate number within the bottom band
+        c.setFont("Helvetica", 12)
+        c.setFillColor(colors.HexColor(hex_color))
+        c.drawString(0.8 * inch, metadata_y, f"Certificate #: {certificate_number}")
+        c.drawRightString(page_width - 0.8 * inch, metadata_y, f"Date: {issue_date}")
+
+        # Add QR code (optional) inside bottom band (bottom-right)
+        if qr_enabled:
+            try:
+                base_url = self.template_config.get("base_url")
+                if base_url:
+                    payload = f"{base_url.rstrip('/')}/verify?cert={certificate_number}"
+                else:
+                    payload = f"Certificate:{certificate_number};Name:{recipient_name};Course:{course_name};Date:{issue_date}"
+
+                qr = qrcode.QRCode(box_size=10, border=10)
+                qr.add_data(payload)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+                # Convert to an in-memory image for reportlab
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                img_buffer.seek(0)
+                img_reader = ImageReader(img_buffer)
+
+                # Calculate placement: inside bottom band at bottom-right
+                w = qr_size * inch
+                h = qr_size * inch
+                x = page_width - qr_margin * inch - w
+                y = qr_margin * inch
+
+                # Ensure QR fits inside bottom band; if not, scale down
+                max_h = bottom_band_height - 0.2 * inch
+                if h > max_h and max_h > 0:
+                    scale = max_h / h
+                    w *= scale
+                    h *= scale
+                    x = page_width - qr_margin * inch - w
+
+                c.drawImage(img_reader, x, y, width=w, height=h, mask='auto')
+            except Exception:
+                # don't fail certificate generation because of QR issues
+                pass
         
         c.save()
         return filepath

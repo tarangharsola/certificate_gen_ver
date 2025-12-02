@@ -37,6 +37,9 @@ def main():
         "accent_color": (255, 140, 0),  # Dark orange
         "border": True,
         "border_width": 4,
+        "qr": True,
+        "qr_size": 1.0,
+        "qr_margin": 0.6,
     }
     
     custom_generator = CertificateGenerator(template_config=custom_template)
