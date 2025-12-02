@@ -190,8 +190,9 @@ class CertificateGenerator:
             "border": True,
             "border_width": 3,
             "qr": True,
-            "qr_size": 1.0,
-            "qr_margin": 0.6,
+            "qr_size": 1.5,  # Increased from 1.0 to make QR codes more visible
+            "qr_margin": 0.5,  # Slightly reduced from 0.6
+            "qr_position": "bottom-right",
         }
     
     @staticmethod
@@ -298,8 +299,8 @@ class CertificateGenerator:
         
         # Layout bottom metadata band and QR positioning
         qr_enabled = bool(self.template_config.get("qr", True)) and _HAS_QR
-        qr_size = float(self.template_config.get("qr_size", 1.0))
-        qr_margin = float(self.template_config.get("qr_margin", 0.6))
+        qr_size = float(self.template_config.get("qr_size", 1.5))  # Default: 1.5 inches (larger)
+        qr_margin = float(self.template_config.get("qr_margin", 0.5))
         qr_position = str(self.template_config.get("qr_position", "bottom-right")).lower()
 
         # Only increase the bottom band when the QR is placed in a bottom position
@@ -308,22 +309,22 @@ class CertificateGenerator:
         else:
             required_qr_height = 0.0
 
-        default_band = 1.0 * inch
+        default_band = 2.2 * inch  # Increased to accommodate larger QR code
         bottom_band_height = max(default_band, required_qr_height)
 
         issuer_y = bottom_band_height + 0.3 * inch
         metadata_y = bottom_band_height / 2.0
 
-        # Draw issuer
+        # Draw issuer (left side only)
         issuer = self.template_config.get("issuer", "Certificate Authority")
         c.setFont("Helvetica-Bold", 14)
         c.drawString(0.8 * inch, issuer_y, f"Issued by: {issuer}")
 
-        # Add issue date and certificate number
+        # Add issue date and certificate number (left side only - avoid QR area)
         c.setFont("Helvetica", 12)
         c.setFillColor(colors.HexColor(hex_color))
         c.drawString(0.8 * inch, metadata_y, f"Certificate #: {certificate_number}")
-        c.drawRightString(page_width - 0.8 * inch, metadata_y, f"Date: {issue_date}")
+        c.drawString(0.8 * inch, metadata_y - 0.25 * inch, f"Date: {issue_date}")
 
         # Add QR code (optional) with embedded verification data
         if qr_enabled:
@@ -386,8 +387,11 @@ class CertificateGenerator:
                         x = page_width - qr_margin * inch - w
 
                 c.drawImage(img_reader, x, y, width=w, height=h, mask='auto')
-            except Exception:
-                pass
+                print(f"✓ QR code added at position {pos}: x={x:.2f}, y={y:.2f}, w={w:.2f}, h={h:.2f}")
+            except Exception as e:
+                print(f"✗ Failed to add QR code: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
 
         # Embed hidden metadata in PDF
         cert_data = {
