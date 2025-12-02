@@ -1,15 +1,18 @@
-# Certificate Generator
+# Certificate Generator - Enhanced Edition
 
-A Python-based tool to generate customizable PDF certificates for courses, achievements, and awards.
+A Python-based tool to generate secure, customizable PDF certificates with hidden metadata, random IDs, QR codes, and optional MongoDB tracking for verification.
 
 ## Features
 
 - 🎓 Generate professional PDF certificates
-- 🎨 Fully customizable templates
+- 🔐 **Hidden metadata** embedded in PDF (machine-readable, human-invisible)
+- 🎲 **Random, secure certificate IDs** (cryptographically generated)
 - 📦 Batch certificate generation
-- 🔢 Auto-generate or custom certificate numbers
+- 🔑 **HMAC checksum** for certificate integrity verification
+- 💾 **MongoDB integration** for certificate tracking and verification
+- 🔍 **Certificate verification** against stored records
+- 🎨 Fully customizable templates
 - 📅 Automatic date handling
-- 💾 JSON-based configuration
 - 🖥️ CLI and programmatic interfaces
 
 ## Installation
@@ -18,6 +21,7 @@ A Python-based tool to generate customizable PDF certificates for courses, achie
 
 - Python 3.7+
 - pip
+- (Optional) MongoDB instance for certificate tracking
 
 ### Setup
 
@@ -31,52 +35,123 @@ cd certificate_gen_ver
 pip install -r requirements.txt
 ```
 
-## Quick Start
+3. (Optional) Set up MongoDB connection:
+   - Copy `.env.example` to `.env`
+   - Update `MONGODB_URI` with your MongoDB connection string
+   ```bash
+   cp .env.example .env
+   # Edit .env with your MongoDB URI
+   ```
 
-### Option 1: Run Quick Start Demo
+### MongoDB Setup (Optional)
 
-Generate sample certificates with one command:
-
+For local MongoDB with Docker:
 ```bash
-python quick_start.py
+docker run -d -p 27017:27017 --name mongodb mongo:latest
 ```
 
-This will create three certificates in the `certificates/` folder with different templates and recipient information.
+Or use MongoDB Atlas (cloud):
+- Sign up at https://www.mongodb.com/cloud/atlas
+- Create a cluster and get your connection string
+- Set `MONGODB_URI` in `.env` or environment variable
 
-### Option 2: Generate Single Certificate
+## Quick Start
+
+### Option 1: Generate Single Certificate (with Random ID)
+
+Generate a certificate with a secure random ID:
 
 ```bash
-python certificate_generator.py create \
+D:/certificate/certificate_gen_ver/.venv/Scripts/python.exe certificate_generator.py create \
   --name "John Doe" \
   --course "Python Programming" \
   --date "December 02, 2025" \
-  --number "CERT-2025-001"
+  --no-store
 ```
 
-### Option 3: Batch Generation from JSON
-
-1. Create a JSON file with recipient data (`example_recipients.json`):
-```json
-[
-  {
-    "name": "John Doe",
-    "course": "Advanced Python Programming",
-    "date": "December 01, 2025",
-    "certificate_number": "CERT-2025-001"
-  },
-  {
-    "name": "Jane Smith",
-    "course": "Web Development",
-    "date": "December 01, 2025",
-    "certificate_number": "CERT-2025-002"
-  }
-]
+Output:
+```
+✓ Certificate created: certificates\John_Doe.pdf
+  Certificate ID: CERT-20251202-02D1BD47E2A59B4C08B1805E
 ```
 
-2. Generate certificates:
+### Option 2: Create and Store in MongoDB
+
 ```bash
-python certificate_generator.py batch --input example_recipients.json
+# Set MONGODB_URI or pass --mongo-uri
+D:/certificate/certificate_gen_ver/.venv/Scripts/python.exe certificate_generator.py create \
+  --name "Jane Smith" \
+  --course "Web Development" \
+  --store
 ```
+
+Certificate will be stored in MongoDB for later verification.
+
+### Option 3: Verify a Certificate
+
+```bash
+D:/certificate/certificate_gen_ver/.venv/Scripts/python.exe certificate_generator.py verify \
+  --cert-id "CERT-20251202-02D1BD47E2A59B4C08B1805E" \
+  --name "John Doe" \
+  --course "Python Programming"
+```
+
+Output (if valid):
+```
+✓ Certificate VERIFIED
+  ID: CERT-20251202-02D1BD47E2A59B4C08B1805E
+  Recipient: John Doe
+  Course: Python Programming
+  Issued: December 02, 2025
+  Issuer: Certificate Authority
+```
+
+### Option 4: Batch Generation
+
+```bash
+D:/certificate/certificate_gen_ver/.venv/Scripts/python.exe certificate_generator.py batch \
+  --input example_recipients.json \
+  --store
+```
+
+## Security & Hidden Metadata
+
+### What is Hidden Metadata?
+
+Every certificate includes machine-readable hidden metadata that is invisible to the human eye but can be scanned by software:
+
+1. **PDF Metadata** - Certificate ID and HMAC checksum embedded in PDF properties
+2. **QR Code** - Encodes certificate data and can optionally link to a verification server
+3. **HMAC Checksum** - Cryptographic signature ensuring data integrity
+
+This data is invisible to PDF viewers but verifiable by certificate verification systems.
+
+### Certificate ID Format
+
+All certificate IDs are cryptographically secure random values:
+```
+CERT-20251202-02D1BD47E2A59B4C08B1805E
+│     │         │
+│     │         └─ 24-char random hex (192 bits entropy)
+│     └────────── Timestamp (YYYYMMDD)
+└──────────────── Certificate prefix
+```
+
+### Verification Process
+
+When verifying a certificate:
+
+1. Extract the certificate ID from the QR code or PDF metadata
+2. Query MongoDB to retrieve the stored record
+3. Compare recipient name and course name
+4. Return verification status (VALID/INVALID)
+
+### Security Best Practices
+
+- Store MongoDB on a secure, encrypted connection (MongoDB Atlas recommended)
+- Use strong credentials for MongoDB access
+- Keep the `MONGODB_URI` in `.env` and don't commit it to version control
+- Consider adding a certificate invalidation mechanism for revoked certificates
 
 ## Customization
 
