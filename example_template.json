@@ -1,0 +1,11 @@
+{
+  "page_size": "landscape",
+  "title": "Certificate of Achievement",
+  "subtitle": "This is to certify that",
+  "issuer": "Certificate Authority",
+  "background_color": [255, 255, 255],
+  "text_color": [0, 0, 0],
+  "accent_color": [70, 130, 180],
+  "border": true,
+  "border_width": 3
+}

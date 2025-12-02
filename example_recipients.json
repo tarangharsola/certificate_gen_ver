@@ -1,0 +1,20 @@
+[
+  {
+    "name": "John Doe",
+    "course": "Advanced Python Programming",
+    "date": "December 01, 2025",
+    "certificate_number": "CERT-2025-001"
+  },
+  {
+    "name": "Jane Smith",
+    "course": "Web Development with React",
+    "date": "December 01, 2025",
+    "certificate_number": "CERT-2025-002"
+  },
+  {
+    "name": "Bob Wilson",
+    "course": "Data Science Fundamentals",
+    "date": "December 02, 2025",
+    "certificate_number": "CERT-2025-003"
+  }
+]
