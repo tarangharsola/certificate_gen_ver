@@ -28,6 +28,14 @@ except Exception:
     qrcode = None
     _HAS_QR = False
 
+# Optional PDF parsing library for verification from file
+try:
+    from PyPDF2 import PdfReader
+    _HAS_PYPDF = True
+except Exception:
+    PdfReader = None
+    _HAS_PYPDF = False
+
 try:
     from pymongo import MongoClient
     from pymongo.errors import ConnectionFailure
@@ -124,14 +132,33 @@ class HiddenMetadata:
     """Embed and extract hidden metadata in/from PDF."""
     
     @staticmethod
-    def generate_checksum(data: Dict, secret: str = "default-secret") -> str:
-        """Generate HMAC checksum for certificate data integrity."""
+    def generate_checksum(data: Dict, secret: Optional[str] = None) -> str:
+        """Generate HMAC checksum for certificate data integrity.
+
+        The secret defaults to the `CERT_SECRET` environment variable when not
+        provided. Returns a truncated hex HMAC (first 16 chars) to embed in
+        PDF metadata.
+        """
+        if secret is None:
+            secret = os.getenv("CERT_SECRET", "default-secret")
         data_str = json.dumps(data, sort_keys=True)
         return hmac.new(
             secret.encode(),
             data_str.encode(),
             hashlib.sha256
-        ).hexdigest()[:16]  # first 16 chars
+        ).hexdigest()[:16]
+
+    @staticmethod
+    def generate_token() -> Tuple[str, str]:
+        """Generate a verification token and its SHA256 hash.
+
+        Returns a tuple `(token, token_hash)` where `token` is a URL-safe
+        random token (to be handed to the recipient) and `token_hash` is the
+        SHA256 hex digest stored in the database and embedded in the PDF.
+        """
+        token = secrets.token_urlsafe(16)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        return token, token_hash
     
     @staticmethod
     def embed_in_pdf_metadata(canvas_obj, cert_data: Dict):
@@ -144,12 +171,14 @@ class HiddenMetadata:
             info.subject = cert_data.get('course_name', '')
             
             # Embed JSON string in creator field (limited length)
-            hidden_str = json.dumps({
+            # Only embed non-sensitive hashed credentials and checksum
+            payload = {
                 "id": cert_data.get('certificate_id'),
-                "hash": HiddenMetadata.generate_checksum(cert_data)
-            }, separators=(',', ':'))
-            
-            # Truncate if too long
+                "token_hash": cert_data.get('credentials', {}).get('token_hash'),
+                "checksum": cert_data.get('credentials', {}).get('checksum')
+            }
+            hidden_str = json.dumps(payload, separators=(',', ':'))
+            # Truncate to avoid overly long metadata fields
             info.creator = f"CertGen|{hidden_str[:200]}"
         except Exception:
             pass  # PDF metadata embedding is best-effort
@@ -169,6 +198,14 @@ class CertificateGenerator:
         self.template_config = template_config or self._default_template()
         self.output_dir = Path("certificates")
         self.output_dir.mkdir(exist_ok=True)
+
+        # Local JSON credentials store (fallback when MongoDB is not used)
+        self.local_store_file = Path("credentials.json")
+        if not self.local_store_file.exists():
+            try:
+                self.local_store_file.write_text("[]")
+            except Exception:
+                pass
         
         self.mongo = None
         if mongo_uri or os.getenv("MONGODB_URI"):
@@ -402,15 +439,48 @@ class CertificateGenerator:
             "issuer": issuer,
             "generated_at": datetime.now().isoformat(),
         }
+
+        # Generate a per-certificate verification token (the raw token is
+        # returned to the caller or can be included in the QR payload) and a
+        # stored token_hash so the DB doesn't contain the raw token.
+        token, token_hash = HiddenMetadata.generate_token()
+
+        # Compute a short HMAC checksum over the cert data using CERT_SECRET
+        checksum = HiddenMetadata.generate_checksum(cert_data)
+
+        # Attach credentials (store only hashed token + checksum)
+        cert_data["credentials"] = {
+            "token_hash": token_hash,
+            "checksum": checksum
+        }
+
+        # Embed (hashed) credentials in PDF metadata
         HiddenMetadata.embed_in_pdf_metadata(c, cert_data)
 
         c.save()
 
-        # Store in MongoDB if enabled
-        if store_in_db and self.mongo and self.mongo.connected:
-            cert_data["created_at"] = datetime.now()
-            cert_data["file_path"] = str(filepath)
-            self.mongo.store_certificate(cert_data)
+        # Store in MongoDB if enabled. Otherwise, fall back to a local JSON
+        # credentials store named `credentials.json`.
+        if store_in_db:
+            db_record = dict(cert_data)
+            db_record["created_at"] = datetime.now()
+            db_record["file_path"] = str(filepath)
+            # Keep credentials as-is (token_hash + checksum)
+            if self.mongo and self.mongo.connected:
+                self.mongo.store_certificate(db_record)
+            else:
+                self._save_to_local_store(db_record)
+
+        # Return the path and the raw token so the caller can distribute it to
+        # the recipient (or include it in the QR). Caller can ignore the
+        # returned token if not needed.
+        # To keep backward compatibility, return filepath but expose token via
+        # an attribute on the generator instance for programmatic access.
+        try:
+            # attach last token to generator for potential programmatic use
+            self._last_token = token
+        except Exception:
+            pass
 
         return filepath
     
@@ -438,8 +508,56 @@ class CertificateGenerator:
             generated_certificates.append(path)
         
         return generated_certificates
+
+    def _save_to_local_store(self, record: Dict) -> bool:
+        """Append a certificate record to the local JSON store.
+
+        Returns True on success.
+        """
+        try:
+            if not self.local_store_file.exists():
+                self.local_store_file.write_text("[]")
+            # Make a JSON-serializable copy (convert datetimes to ISO strings)
+            def make_serializable(obj):
+                if isinstance(obj, dict):
+                    return {k: make_serializable(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [make_serializable(v) for v in obj]
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                return obj
+
+            serializable_record = make_serializable(record)
+
+            with self.local_store_file.open("r+", encoding="utf-8") as f:
+                try:
+                    data = json.load(f)
+                except Exception:
+                    data = []
+                data.append(serializable_record)
+                f.seek(0)
+                json.dump(data, f, indent=2)
+                f.truncate()
+            return True
+        except Exception as e:
+            click.echo(f"Failed to write local credentials: {e}", err=True)
+            return False
+
+    def _load_local_record(self, cert_id: str) -> Optional[Dict]:
+        """Load a record by certificate_id from the local JSON store."""
+        try:
+            if not self.local_store_file.exists():
+                return None
+            with self.local_store_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                for rec in data:
+                    if rec.get("certificate_id") == cert_id:
+                        return rec
+            return None
+        except Exception:
+            return None
     
-    def verify_certificate(self, certificate_id: str, recipient_name: str, course_name: str) -> Dict:
+    def verify_certificate(self, certificate_id: str, recipient_name: str, course_name: str, token: Optional[str] = None) -> Dict:
         """
         Verify a certificate against stored records.
         
@@ -471,7 +589,35 @@ class CertificateGenerator:
                 "verified": False,
                 "reason": "Course name mismatch"
             }
-        
+        # If a token was provided, verify token hash matches stored token_hash
+        credentials = record.get("credentials", {}) or {}
+        stored_token_hash = credentials.get("token_hash")
+        stored_checksum = credentials.get("checksum")
+
+        if token:
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            if not stored_token_hash or token_hash != stored_token_hash:
+                return {
+                    "verified": False,
+                    "reason": "Token mismatch"
+                }
+
+        # Recompute checksum from stored record fields and compare
+        recompute_data = {
+            "certificate_id": record.get("certificate_id"),
+            "recipient_name": record.get("recipient_name"),
+            "course_name": record.get("course_name"),
+            "issue_date": record.get("issue_date"),
+            "issuer": record.get("issuer"),
+            "generated_at": record.get("generated_at"),
+        }
+        expected_checksum = HiddenMetadata.generate_checksum(recompute_data)
+        if stored_checksum and expected_checksum != stored_checksum:
+            return {
+                "verified": False,
+                "reason": "Checksum mismatch - data may have been tampered"
+            }
+
         return {
             "verified": True,
             "certificate_id": certificate_id,
@@ -481,6 +627,112 @@ class CertificateGenerator:
             "issuer": record.get("issuer"),
             "generated_at": record.get("generated_at"),
         }
+
+    def verify_file(self, pdf_path: str, token: Optional[str] = None) -> Dict:
+        """Verify a certificate PDF by extracting embedded hidden metadata.
+
+        This reads the PDF metadata (the `Creator` field created by the
+        generator) and extracts the embedded JSON payload inserted during
+        generation. If MongoDB is available it will cross-check stored
+        credentials; otherwise it will validate the checksum if present.
+
+        Returns the same dict structure as `verify_certificate`.
+        """
+        if not _HAS_PYPDF:
+            return {"verified": False, "reason": "PyPDF2 not installed"}
+
+        if not os.path.exists(pdf_path):
+            return {"verified": False, "reason": "File not found"}
+
+        try:
+            reader = PdfReader(pdf_path)
+            info = reader.metadata or {}
+            creator = info.get('/Creator') or info.get('Creator') or ''
+            if not creator or 'CertGen|' not in creator:
+                return {"verified": False, "reason": "No embedded certificate metadata found"}
+
+            try:
+                payload_json = creator.split('CertGen|', 1)[1]
+                payload = json.loads(payload_json)
+            except Exception:
+                # If truncated, try to recover JSON substring
+                raw = creator.split('CertGen|', 1)[1]
+                # Find first { and last }
+                start = raw.find('{')
+                end = raw.rfind('}')
+                if start == -1 or end == -1:
+                    return {"verified": False, "reason": "Embedded metadata malformed"}
+                payload = json.loads(raw[start:end+1])
+
+            cert_id = payload.get('id')
+            token_hash = payload.get('token_hash')
+            checksum = payload.get('checksum')
+
+            if not cert_id:
+                return {"verified": False, "reason": "Certificate ID missing in embedded metadata"}
+
+            # If DB is available, prefer DB verification
+            if self.mongo and self.mongo.connected:
+                # Use existing verify_certificate logic; pass token if provided
+                # We don't know recipient/course from the PDF metadata here,
+                # so retrieve record and perform checksum/token checks only.
+                record = self.mongo.retrieve_certificate(cert_id)
+                if not record:
+                    return {"verified": False, "reason": "Certificate not found in database"}
+
+                # If a token supplied, verify it
+                if token:
+                    token_hash_local = hashlib.sha256(token.encode()).hexdigest()
+                    if token_hash_local != record.get('credentials', {}).get('token_hash'):
+                        return {"verified": False, "reason": "Token mismatch"}
+
+                # Recompute checksum and compare if available
+                recompute = {
+                    "certificate_id": record.get('certificate_id'),
+                    "recipient_name": record.get('recipient_name'),
+                    "course_name": record.get('course_name'),
+                    "issue_date": record.get('issue_date'),
+                    "issuer": record.get('issuer'),
+                    "generated_at": record.get('generated_at'),
+                }
+                expected = HiddenMetadata.generate_checksum(recompute)
+                stored = record.get('credentials', {}).get('checksum')
+                if stored and expected != stored:
+                    return {"verified": False, "reason": "Checksum mismatch - data differs from DB"}
+
+                return {"verified": True, "certificate_id": cert_id, "from": "db"}
+            # If no DB, try local JSON store
+            local_rec = self._load_local_record(cert_id)
+            if local_rec:
+                # token check
+                if token:
+                    token_hash_local = hashlib.sha256(token.encode()).hexdigest()
+                    if token_hash_local != local_rec.get('credentials', {}).get('token_hash'):
+                        return {"verified": False, "reason": "Token mismatch"}
+
+                # checksum check
+                recompute = {
+                    "certificate_id": local_rec.get("certificate_id"),
+                    "recipient_name": local_rec.get("recipient_name"),
+                    "course_name": local_rec.get("course_name"),
+                    "issue_date": local_rec.get("issue_date"),
+                    "issuer": local_rec.get("issuer"),
+                    "generated_at": local_rec.get("generated_at"),
+                }
+                expected_checksum = HiddenMetadata.generate_checksum(recompute)
+                stored_checksum = local_rec.get('credentials', {}).get('checksum')
+                if stored_checksum and expected_checksum != stored_checksum:
+                    return {"verified": False, "reason": "Checksum mismatch - data may have been tampered"}
+
+                return {"verified": True, "certificate_id": cert_id, "from": "local_store"}
+
+            # If we reach here, no DB and no local record; fallback to metadata-only
+            if checksum:
+                return {"verified": True, "certificate_id": cert_id, "from": "pdf_metadata_only"}
+
+            return {"verified": False, "reason": "Insufficient metadata to verify"}
+        except Exception as e:
+            return {"verified": False, "reason": f"Error reading PDF: {e}"}
     
     @staticmethod
     def _rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
@@ -526,6 +778,11 @@ def create(name: str, course: str, date: Optional[str], output: Optional[str], m
     )
     click.echo(f"✓ Certificate created: {filepath}")
     click.echo(f"  Certificate ID: {cert_id}")
+    # If a token was generated, expose it so caller can distribute it to
+    # the certificate recipient (this is the only time the raw token exists).
+    token = getattr(generator, '_last_token', None)
+    if token:
+        click.echo(f"  Verification token (store securely): {token}")
 
 
 @cli.command()
@@ -554,12 +811,13 @@ def batch(input: str, template: Optional[str], mongo_uri: Optional[str], store: 
 @click.option('--cert-id', prompt='Certificate ID', help='Certificate ID to verify')
 @click.option('--name', prompt='Recipient name', help='Recipient name')
 @click.option('--course', prompt='Course name', help='Course name')
+@click.option('--token', default=None, help='Verification token (optional)')
 @click.option('--mongo-uri', default=None, help='MongoDB URI')
-def verify(cert_id: str, name: str, course: str, mongo_uri: Optional[str]):
+def verify(cert_id: str, name: str, course: str, token: Optional[str], mongo_uri: Optional[str]):
     """Verify a certificate against MongoDB records"""
     generator = CertificateGenerator(mongo_uri=mongo_uri)
     
-    result = generator.verify_certificate(cert_id, name, course)
+    result = generator.verify_certificate(cert_id, name, course, token=token)
     
     if result["verified"]:
         click.secho("✓ Certificate VERIFIED", fg="green")
@@ -620,6 +878,22 @@ def recipients(output: str):
         json.dump(sample_recipients, f, indent=2)
     
     click.echo(f"✓ Recipients file saved to: {output}")
+
+
+@cli.command('verify-file')
+@click.option('--file', 'file_path', required=True, type=click.Path(exists=True), help='PDF file to verify')
+@click.option('--token', default=None, help='Verification token (optional)')
+@click.option('--mongo-uri', default=None, help='MongoDB URI')
+def verify_file_cmd(file_path: str, token: Optional[str], mongo_uri: Optional[str]):
+    """Verify a certificate by reading embedded metadata from a PDF file."""
+    generator = CertificateGenerator(mongo_uri=mongo_uri)
+    result = generator.verify_file(file_path, token=token)
+    if result.get('verified'):
+        click.secho('✓ Certificate VERIFIED', fg='green')
+        click.echo(f"  ID: {result.get('certificate_id')}")
+        click.echo(f"  Source: {result.get('from')}")
+    else:
+        click.secho(f"✗ Certificate INVALID: {result.get('reason')}", fg='red')
 
 
 if __name__ == '__main__':
