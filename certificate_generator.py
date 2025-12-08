@@ -723,31 +723,48 @@ def cli():
 
 
 @cli.command()
-@click.option('--name', prompt='Recipient name', help='Name of the certificate recipient')
-@click.option('--course', prompt='Course name', help='Name of the course/achievement')
-@click.option('--date', default=None, help='Issue date (defaults to today)')
-@click.option('--output', default=None, help='Output filename')
+@click.option('--input', required=True, type=click.Path(exists=True), help='JSON file with user credentials')
 @click.option('--mongo-uri', default=None, help='MongoDB URI (or use MONGODB_URI env var)')
-@click.option('--store/--no-store', default=True, help='Store in MongoDB (default: true)')
-def create(name: str, course: str, date: Optional[str], output: Optional[str], mongo_uri: Optional[str], store: bool):
-    """Create a single certificate with random ID and optional MongoDB storage"""
-    generator = CertificateGenerator(mongo_uri=mongo_uri)
-    cert_id = CertificateGenerator.generate_random_cert_id()
-    filepath = generator.generate_certificate(
-        recipient_name=name,
-        course_name=course,
-        issue_date=date,
-        certificate_number=cert_id,
-        output_filename=output,
-        store_in_db=store,
-    )
-    click.echo(f"✓ Certificate created: {filepath}")
-    click.echo(f"  Certificate ID: {cert_id}")
-    # If a token was generated, expose it so caller can distribute it to
-    # the certificate recipient (this is the only time the raw token exists).
-    token = getattr(generator, '_last_token', None)
-    if token:
-        click.echo(f"  Verification token (store securely): {token}")
+@click.option('--store/--no-store', default=True, help='Store credentials (default: true)')
+def create(input: str, mongo_uri: Optional[str], store: bool):
+    """Create a certificate by reading user credentials from JSON file"""
+    try:
+        with open(input, 'r') as f:
+            user_data = json.load(f)
+        
+        # Validate required fields
+        required_fields = ['name', 'course']
+        missing_fields = [field for field in required_fields if field not in user_data]
+        
+        if missing_fields:
+            click.secho(f"✗ Missing required fields: {', '.join(missing_fields)}", fg="red")
+            return
+        
+        generator = CertificateGenerator(mongo_uri=mongo_uri)
+        cert_id = CertificateGenerator.generate_random_cert_id()
+        filepath = generator.generate_certificate(
+            recipient_name=user_data['name'],
+            course_name=user_data['course'],
+            issue_date=user_data.get('date'),
+            certificate_number=cert_id,
+            output_filename=user_data.get('output'),
+            store_in_db=store,
+        )
+        click.echo(f"✓ Certificate created: {filepath}")
+        click.echo(f"  Certificate ID: {cert_id}")
+        click.echo(f"  Recipient: {user_data['name']}")
+        click.echo(f"  Course: {user_data['course']}")
+        
+        # If a token was generated, expose it so caller can distribute it to
+        # the certificate recipient (this is the only time the raw token exists).
+        token = getattr(generator, '_last_token', None)
+        if token:
+            click.echo(f"  Verification token (store securely): {token}")
+    
+    except json.JSONDecodeError:
+        click.secho(f"✗ Invalid JSON in file: {input}", fg="red")
+    except Exception as e:
+        click.secho(f"✗ Error creating certificate: {e}", fg="red")
 
 
 @cli.command()

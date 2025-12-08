@@ -18,9 +18,20 @@ A secure, tamper-proof certificate generation and verification system with QR co
 
 ## Quick Start
 
-### 1. Create a Certificate
+### 1. Prepare User Credentials
+
+Create `user_credentials.json`:
+```json
+{
+  "name": "John Doe",
+  "course": "Python Basics",
+  "date": "December 08, 2025"
+}
+```
+
+### 2. Create a Certificate from JSON
 ```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py create --name "John Doe" --course "Python Basics"
+& .\.venv\Scripts\python.exe certificate_generator.py create --input user_credentials.json
 ```
 
 **Output:**
@@ -93,28 +104,52 @@ The system provides 4 main commands for certificate and device management:
 
 ### Certificate Generation
 
-#### Create Single Certificate
+#### Create Certificate from JSON File
 ```powershell
 & .\.venv\Scripts\python.exe certificate_generator.py create `
-  --name "Recipient Name" `
-  --course "Course Name" `
-  [--date "Month DD, YYYY"] `
-  [--output filename.pdf] `
+  --input user_credentials.json `
+  [--mongo-uri "mongodb://localhost:27017/"] `
   [--store/--no-store]
 ```
 
+**Required JSON File Format:**
+```json
+{
+  "name": "Recipient Name",
+  "course": "Course Name",
+  "date": "Month DD, YYYY",
+  "output": "optional_filename"
+}
+```
+
 **Options:**
-- `--name` — Recipient name (required)
-- `--course` — Course/achievement name (required)
-- `--date` — Issue date (defaults to today)
-- `--output` — Output filename (defaults to recipient name)
-- `--store/--no-store` — Store in JSON (default: true)
+- `--input` — JSON file with user credentials (required)
+- `--mongo-uri` — MongoDB URI (optional)
+- `--store/--no-store` — Store credentials (default: true)
 
 **Example:**
+
+Create `user_credentials.json`:
+```json
+{
+  "name": "Alice Smith",
+  "course": "Advanced Python",
+  "date": "December 08, 2025"
+}
+```
+
+Then run:
 ```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py create `
-  --name "Alice Smith" `
-  --course "Advanced Python"
+& .\.venv\Scripts\python.exe certificate_generator.py create --input user_credentials.json
+```
+
+**Output:**
+```
+✓ Certificate created: certificates\Alice_Smith.pdf
+  Certificate ID: CERT-20251208-ABC123DEF456
+  Recipient: Alice Smith
+  Course: Advanced Python
+  Verification token (store securely): E7GmFQs5xDLCq_h6xgErbQ
 ```
 
 ### Verification
