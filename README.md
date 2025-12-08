@@ -10,9 +10,9 @@ A secure, tamper-proof certificate generation and verification system with QR co
 ✅ **Hidden Credentials** — Token hash + HMAC checksum in PDF metadata  
 ✅ **Tamper Detection** — HMAC-SHA256 checksums verify data integrity  
 ✅ **Local Storage** — Stores credentials in `credentials.json` (no MongoDB required)  
-✅ **Batch Generation** — Create multiple certificates from JSON file  
-✅ **Custom Templates** — Control layout, colors, fonts, QR position  
+✅ **Single Certificate Generation** — Create certificate for one user at a time  
 ✅ **Verification Tool** — Standalone tool to verify certificate authenticity  
+✅ **Device Cleanup Tracking** — Log device data removals with file tracking  
 
 ---
 
@@ -89,7 +89,7 @@ pip install -r requirements.txt
 
 ## CLI Commands
 
-The system provides 4 main commands:
+The system provides 4 main commands for certificate and device management:
 
 ### Certificate Generation
 
@@ -115,49 +115,6 @@ The system provides 4 main commands:
 & .\.venv\Scripts\python.exe certificate_generator.py create `
   --name "Alice Smith" `
   --course "Advanced Python"
-```
-
-#### Batch Generation
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py batch `
-  --input recipients.json `
-  [--template custom_template.json]
-```
-
-#### Batch Generation
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py batch `
-  --input recipients.json `
-  [--template custom_template.json]
-```
-
-Create `recipients.json`:
-```json
-[
-  {"name": "Alice Smith", "course": "Python Basics"},
-  {"name": "Bob Johnson", "course": "Web Development"},
-  {"name": "Carol White", "course": "Data Science"}
-]
-```
-
-Then run:
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py batch --input recipients.json
-```
-
-#### Generate Sample Template
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py template --output my_template.json
-```
-
-Edit and use with batch:
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py batch --input recipients.json --template my_template.json
-```
-
-#### Generate Sample Recipients File
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py recipients --output recipients.json
 ```
 
 ### Verification
@@ -245,8 +202,9 @@ certificate_gen_ver/
 ├── .gitignore                  # Git rules
 ├── requirements.txt            # Dependencies
 ├── certificates/               # Output PDFs
-├── README.md                   # This file
-└── example_recipients.json     # Sample recipients
+├── device_data.json            # Device cleanup example
+├── device_cleanup_example.json # Extended device cleanup example
+└── README.md                   # This file
 ```
 
 ### credentials.json Format
@@ -312,28 +270,9 @@ When processing device cleanup data using `process-device`, the JSON file must c
 
 ---
 
-## Customization
+## QR Code Configuration
 
-### Template Configuration
-
-Edit `my_template.json`:
-```json
-{
-  "page_size": "landscape",
-  "title": "Certificate of Achievement",
-  "subtitle": "This is to certify that",
-  "issuer": "Your Organization",
-  "background_color": [255, 255, 255],
-  "text_color": [0, 0, 0],
-  "accent_color": [70, 130, 180],
-  "border": true,
-  "border_width": 3,
-  "qr": true,
-  "qr_size": 1.5,
-  "qr_margin": 0.5,
-  "qr_position": "bottom-right"
-}
-```
+The certificate generator includes a built-in template with QR code support.
 
 ### QR Code Positions
 
