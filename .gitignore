@@ -1,47 +1,114 @@
-# Environment variables
+# ===========================================
+# ENVIRONMENT & CONFIGURATION
+# ===========================================
 .env
 .env.local
 .env.*.local
+.env.prod
+.env.staging
 
-# Virtual environments
+# ===========================================
+# PYTHON & VIRTUAL ENVIRONMENTS
+# ===========================================
 .venv/
 venv/
 env/
-
-# Python
+ENV/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
 *.egg-info/
+.eggs/
 dist/
 build/
 
-# Credentials & sensitive data
+# ===========================================
+# CREDENTIALS & SENSITIVE DATA
+# ===========================================
 credentials.json
 *.key
 *.pem
 *.secret
+*_secret*
+.aws/
+.gcp/
 
-# Generated files
+# ===========================================
+# GENERATED & TEMPORARY FILES
+# ===========================================
 certificates/
 *.log
 *.tmp
 *.bak
 *.swp
 *~
-
-# IDE & OS files
-.vscode/
-.idea/
-*.swp
 *.swo
 .DS_Store
 Thumbs.db
 .project
 .settings/
+*.orig
 
-# OS specific
-.env.prod
-.env.staging
+# ===========================================
+# IDE & EDITOR
+# ===========================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.iml
+.classpath
+.c9/
+*.launch
+.scaladoc
+
+# ===========================================
+# OS SPECIFIC
+# ===========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===========================================
+# NODE (if added in future)
+# ===========================================
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# ===========================================
+# TEST FILES & EXAMPLES
+# ===========================================
+test_*.json
+*_test.json
+example_*.json
+*_example.json
+invalid_*.json
+sample_*.json
+
+# ===========================================
+# DATA FILES (USER INPUT)
+# ===========================================
+# Track user_data.json for reproducible certificate generation
+# But ignore generated/temporary data copies
+# Keep only user_data.json, ignore backups
+user_data.*.json
+user_data_backup.json
+credentials_backup.json

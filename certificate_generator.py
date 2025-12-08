@@ -730,10 +730,14 @@ def create(input: str, mongo_uri: Optional[str], store: bool):
     """Create a certificate by reading user credentials from JSON file"""
     try:
         with open(input, 'r') as f:
-            user_data = json.load(f)
+            data = json.load(f)
         
-        # Validate required fields
-        required_fields = ['name', 'course']
+        # Handle both flat and nested JSON formats
+        # If 'user' key exists, extract user data from it; otherwise use root level
+        user_data = data.get('user', data) if isinstance(data, dict) else data
+        
+        # Validate required fields - only 'name' is required
+        required_fields = ['name']
         missing_fields = [field for field in required_fields if field not in user_data]
         
         if missing_fields:
@@ -744,7 +748,7 @@ def create(input: str, mongo_uri: Optional[str], store: bool):
         cert_id = CertificateGenerator.generate_random_cert_id()
         filepath = generator.generate_certificate(
             recipient_name=user_data['name'],
-            course_name=user_data['course'],
+            course_name=user_data.get('course', 'Certificate of Achievement'),
             issue_date=user_data.get('date'),
             certificate_number=cert_id,
             output_filename=user_data.get('output'),
@@ -753,7 +757,11 @@ def create(input: str, mongo_uri: Optional[str], store: bool):
         click.echo(f"✓ Certificate created: {filepath}")
         click.echo(f"  Certificate ID: {cert_id}")
         click.echo(f"  Recipient: {user_data['name']}")
-        click.echo(f"  Course: {user_data['course']}")
+        if 'course' in user_data:
+            click.echo(f"  Course: {user_data['course']}")
+        for key, value in user_data.items():
+            if key not in ['name', 'course', 'date', 'output']:
+                click.echo(f"  {key.replace('_', ' ').title()}: {value}")
         
         # If a token was generated, expose it so caller can distribute it to
         # the certificate recipient (this is the only time the raw token exists).
@@ -770,10 +778,10 @@ def create(input: str, mongo_uri: Optional[str], store: bool):
 @cli.command()
 @click.option('--cert-id', prompt='Certificate ID', help='Certificate ID to verify')
 @click.option('--name', prompt='Recipient name', help='Recipient name')
-@click.option('--course', prompt='Course name', help='Course name')
+@click.option('--course', default=None, help='Course name (optional)')
 @click.option('--token', default=None, help='Verification token (optional)')
 @click.option('--mongo-uri', default=None, help='MongoDB URI')
-def verify(cert_id: str, name: str, course: str, token: Optional[str], mongo_uri: Optional[str]):
+def verify(cert_id: str, name: str, course: Optional[str], token: Optional[str], mongo_uri: Optional[str]):
     """Verify a certificate against MongoDB records"""
     generator = CertificateGenerator(mongo_uri=mongo_uri)
     
