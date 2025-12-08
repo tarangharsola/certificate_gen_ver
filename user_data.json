@@ -6,6 +6,7 @@
   },
   "device": {
     "device_id": "DEVICE-20251208-ABC123DEF456",
+    "Operating System": "Windows 11",
     "files_deleted": [
       "/var/log/application.log",
       "/tmp/cache/temp_files.tmp",
