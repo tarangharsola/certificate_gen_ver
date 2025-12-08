@@ -1,0 +1,13 @@
+{
+  "device_id": "DEVICE-20251208-ABC123DEF456",
+  "files_deleted": [
+    "/var/log/application.log",
+    "/tmp/cache/temp_files.tmp",
+    "/home/user/Downloads/old_backup.zip",
+    "/opt/app/logs/error_2025-12.log",
+    "/var/cache/npm/random-package"
+  ],
+  "size_removed": "2.5 GB",
+  "action_type": "purge",
+  "timestamp": "2025-12-08T14:30:45.123456"
+}

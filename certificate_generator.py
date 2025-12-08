@@ -484,31 +484,6 @@ class CertificateGenerator:
 
         return filepath
     
-    def generate_batch(self, recipients: List[Dict], store_in_db: bool = True) -> List[Path]:
-        """
-        Generate certificates for multiple recipients.
-        
-        Args:
-            recipients: List of dictionaries with recipient information
-            store_in_db: Whether to store in MongoDB
-        
-        Returns:
-            List of paths to generated certificates
-        """
-        generated_certificates = []
-        for recipient in recipients:
-            path = self.generate_certificate(
-                recipient_name=recipient["name"],
-                course_name=recipient["course"],
-                issue_date=recipient.get("date"),
-                certificate_number=recipient.get("certificate_number"),
-                output_filename=recipient.get("output_filename"),
-                store_in_db=store_in_db,
-            )
-            generated_certificates.append(path)
-        
-        return generated_certificates
-
     def _save_to_local_store(self, record: Dict) -> bool:
         """Append a certificate record to the local JSON store.
 
@@ -738,16 +713,6 @@ class CertificateGenerator:
     def _rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
         """Convert RGB tuple to hex color string."""
         return "#{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
-    
-    def load_recipients_from_json(self, filepath: str) -> List[Dict]:
-        """Load recipient data from JSON file."""
-        with open(filepath, 'r') as f:
-            return json.load(f)
-    
-    def load_template_from_json(self, filepath: str):
-        """Load template configuration from JSON file."""
-        with open(filepath, 'r') as f:
-            self.template_config = json.load(f)
 
 
 # CLI Commands
@@ -786,28 +751,6 @@ def create(name: str, course: str, date: Optional[str], output: Optional[str], m
 
 
 @cli.command()
-@click.option('--input', required=True, type=click.Path(exists=True), 
-              help='JSON file with recipient data')
-@click.option('--template', default=None, type=click.Path(exists=True),
-              help='JSON file with template configuration')
-@click.option('--mongo-uri', default=None, help='MongoDB URI')
-@click.option('--store/--no-store', default=True, help='Store in MongoDB (default: true)')
-def batch(input: str, template: Optional[str], mongo_uri: Optional[str], store: bool):
-    """Create certificates in batch from JSON file"""
-    generator = CertificateGenerator(mongo_uri=mongo_uri)
-    
-    if template:
-        generator.load_template_from_json(template)
-    
-    recipients = generator.load_recipients_from_json(input)
-    paths = generator.generate_batch(recipients, store_in_db=store)
-    
-    click.echo(f"✓ Generated {len(paths)} certificates:")
-    for path in paths:
-        click.echo(f"  - {path}")
-
-
-@cli.command()
 @click.option('--cert-id', prompt='Certificate ID', help='Certificate ID to verify')
 @click.option('--name', prompt='Recipient name', help='Recipient name')
 @click.option('--course', prompt='Course name', help='Course name')
@@ -830,56 +773,6 @@ def verify(cert_id: str, name: str, course: str, token: Optional[str], mongo_uri
         click.secho(f"✗ Certificate INVALID: {result['reason']}", fg="red")
 
 
-@cli.command()
-@click.option('--output', default='template.json', help='Output template filename')
-def template(output: str):
-    """Generate a sample template configuration file"""
-    sample_template = {
-        "page_size": "landscape",
-        "title": "Certificate of Achievement",
-        "subtitle": "This is to certify that",
-        "issuer": "Your Organization",
-        "background_color": [255, 255, 255],
-        "text_color": [0, 0, 0],
-        "accent_color": [70, 130, 180],
-        "border": True,
-        "border_width": 3,
-        "qr": True,
-        "qr_size": 1.0,
-        "qr_margin": 0.6,
-        "qr_position": "bottom-right",
-        "base_url": "https://example.com/verify"
-    }
-    
-    with open(output, 'w') as f:
-        json.dump(sample_template, f, indent=2)
-    
-    click.echo(f"✓ Template saved to: {output}")
-
-
-@cli.command()
-@click.option('--output', default='recipients.json', help='Output recipients filename')
-def recipients(output: str):
-    """Generate a sample recipients data file"""
-    sample_recipients = [
-        {
-            "name": "John Doe",
-            "course": "Advanced Python Programming",
-            "date": "December 01, 2025"
-        },
-        {
-            "name": "Jane Smith",
-            "course": "Advanced Python Programming",
-            "date": "December 01, 2025"
-        }
-    ]
-    
-    with open(output, 'w') as f:
-        json.dump(sample_recipients, f, indent=2)
-    
-    click.echo(f"✓ Recipients file saved to: {output}")
-
-
 @cli.command('verify-file')
 @click.option('--file', 'file_path', required=True, type=click.Path(exists=True), help='PDF file to verify')
 @click.option('--token', default=None, help='Verification token (optional)')
@@ -894,6 +787,64 @@ def verify_file_cmd(file_path: str, token: Optional[str], mongo_uri: Optional[st
         click.echo(f"  Source: {result.get('from')}")
     else:
         click.secho(f"✗ Certificate INVALID: {result.get('reason')}", fg='red')
+
+
+@cli.command('process-device')
+@click.option('--input', required=True, type=click.Path(exists=True), help='JSON file with device data')
+def process_device(input: str):
+    """Process device data from JSON file with deleted files and data removal info"""
+    try:
+        with open(input, 'r') as f:
+            device_data = json.load(f)
+        
+        # Validate required fields
+        required_fields = ['device_id', 'files_deleted', 'size_removed', 'action_type', 'timestamp']
+        missing_fields = [field for field in required_fields if field not in device_data]
+        
+        if missing_fields:
+            click.secho(f"✗ Missing required fields: {', '.join(missing_fields)}", fg="red")
+            return
+        
+        # Validate action_type
+        if device_data['action_type'] not in ['clear', 'purge']:
+            click.secho(f"✗ Invalid action_type. Must be 'clear' or 'purge', got: {device_data['action_type']}", fg="red")
+            return
+        
+        # Validate files_deleted is a list
+        if not isinstance(device_data['files_deleted'], list):
+            click.secho("✗ 'files_deleted' must be a list", fg="red")
+            return
+        
+        # Display processed device data
+        click.secho("✓ Device data processed successfully:", fg="green")
+        click.echo(f"  Device ID: {device_data['device_id']}")
+        click.echo(f"  Action Type: {device_data['action_type']}")
+        click.echo(f"  Data Removed: {device_data['size_removed']}")
+        click.echo(f"  Timestamp: {device_data['timestamp']}")
+        click.echo(f"  Files Deleted: {len(device_data['files_deleted'])} file(s)")
+        
+        for idx, file in enumerate(device_data['files_deleted'], 1):
+            click.echo(f"    {idx}. {file}")
+        
+        # Store in credentials.json for tracking
+        generator = CertificateGenerator()
+        record = {
+            "device_id": device_data['device_id'],
+            "action_type": device_data['action_type'],
+            "size_removed": device_data['size_removed'],
+            "timestamp": device_data['timestamp'],
+            "files_deleted_count": len(device_data['files_deleted']),
+            "files_deleted": device_data['files_deleted'],
+            "processed_at": datetime.now().isoformat(),
+            "record_type": "device_cleanup"
+        }
+        generator._save_to_local_store(record)
+        click.echo(f"✓ Device record stored in credentials.json")
+        
+    except json.JSONDecodeError:
+        click.secho(f"✗ Invalid JSON in file: {input}", fg="red")
+    except Exception as e:
+        click.secho(f"✗ Error processing device data: {e}", fg="red")
 
 
 if __name__ == '__main__':

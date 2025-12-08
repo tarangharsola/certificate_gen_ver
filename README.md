@@ -89,6 +89,8 @@ pip install -r requirements.txt
 
 ## CLI Commands
 
+The system provides 4 main commands:
+
 ### Certificate Generation
 
 #### Create Single Certificate
@@ -113,6 +115,13 @@ pip install -r requirements.txt
 & .\.venv\Scripts\python.exe certificate_generator.py create `
   --name "Alice Smith" `
   --course "Advanced Python"
+```
+
+#### Batch Generation
+```powershell
+& .\.venv\Scripts\python.exe certificate_generator.py batch `
+  --input recipients.json `
+  [--template custom_template.json]
 ```
 
 #### Batch Generation
@@ -174,6 +183,14 @@ Then verify:
   --file "certificates\John_Doe.pdf" `
   --token "E7GmFQs5xDLCq_h6xgErbQ"
 ```
+
+#### Process Device Cleanup Data
+```powershell
+& .\.venv\Scripts\python.exe certificate_generator.py process-device `
+  --input device_data.json
+```
+
+Read device data from JSON file with cleanup/purge actions and file deletions.
 
 ---
 
@@ -249,9 +266,49 @@ certificate_gen_ver/
     },
     "created_at": "2025-12-06T10:30:45.123456",
     "file_path": "certificates\\John_Doe.pdf"
+  },
+  {
+    "device_id": "DEVICE-20251208-ABC123DEF456",
+    "action_type": "purge",
+    "size_removed": "2.5 GB",
+    "timestamp": "2025-12-08T14:30:45.123456",
+    "files_deleted_count": 5,
+    "files_deleted": [
+      "/var/log/application.log",
+      "/tmp/cache/temp_files.tmp",
+      "/home/user/Downloads/old_backup.zip"
+    ],
+    "processed_at": "2025-12-08T11:55:47.918775",
+    "record_type": "device_cleanup"
   }
 ]
 ```
+
+### Device Data Input Format
+
+When processing device cleanup data using `process-device`, the JSON file must contain:
+
+```json
+{
+  "device_id": "DEVICE-20251208-ABC123DEF456",
+  "files_deleted": [
+    "/var/log/application.log",
+    "/tmp/cache/temp_files.tmp",
+    "/home/user/Downloads/old_backup.zip",
+    "/opt/app/logs/error_2025-12.log"
+  ],
+  "size_removed": "2.5 GB",
+  "action_type": "purge",
+  "timestamp": "2025-12-08T14:30:45.123456"
+}
+```
+
+**Required Fields:**
+- `device_id` (string) — Unique device identifier
+- `files_deleted` (array) — List of file paths that were deleted
+- `size_removed` (string) — Amount of data removed (e.g., "2.5 GB", "500 MB")
+- `action_type` (string) — Type of action: `"clear"` or `"purge"`
+- `timestamp` (string) — ISO 8601 timestamp when action occurred
 
 ---
 
@@ -307,22 +364,7 @@ Adjust `qr_size` (in inches):
   --date "December 06, 2025"
 ```
 
-### Example 2: Batch from File
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py batch `
-  --input recipients.json
-```
-
-### Example 3: Custom Template
-```powershell
-& .\.venv\Scripts\python.exe certificate_generator.py template --output my_template.json
-# Edit my_template.json
-& .\.venv\Scripts\python.exe certificate_generator.py batch `
-  --input recipients.json `
-  --template my_template.json
-```
-
-### Example 4: Verify Certificate
+### Example 2: Verify Certificate
 ```powershell
 & .\.venv\Scripts\python.exe verify_tool.py verify-db `
   --cert-id "CERT-20251206-ABC123DEF456" `
@@ -331,10 +373,51 @@ Adjust `qr_size` (in inches):
   --token "E7GmFQs5xDLCq_h6xgErbQ"
 ```
 
-### Example 5: Verify PDF
+### Example 3: Verify PDF
 ```powershell
 & .\.venv\Scripts\python.exe verify_tool.py verify-file `
   --file "certificates\John_Smith.pdf" `
+  --token "E7GmFQs5xDLCq_h6xgErbQ"
+```
+
+### Example 4: Process Device Cleanup Data
+Create `device_data.json`:
+```json
+{
+  "device_id": "DEVICE-20251208-PROD-ALPHA",
+  "files_deleted": [
+    "/var/log/application.log",
+    "/var/log/error.log",
+    "/tmp/session_cache/*",
+    "/var/cache/npm/*"
+  ],
+  "size_removed": "5.8 GB",
+  "action_type": "purge",
+  "timestamp": "2025-12-08T14:30:45.123456Z"
+}
+```
+
+Then process:
+```powershell
+& .\.venv\Scripts\python.exe certificate_generator.py process-device `
+  --input device_data.json
+```
+
+Output:
+```
+✓ Device data processed successfully:
+  Device ID: DEVICE-20251208-PROD-ALPHA
+  Action Type: purge
+  Data Removed: 5.8 GB
+  Timestamp: 2025-12-08T14:30:45.123456Z
+  Files Deleted: 4 file(s)
+    1. /var/log/application.log
+    2. /var/log/error.log
+    3. /tmp/session_cache/*
+    4. /var/cache/npm/*
+✓ Device record stored in credentials.json
+```
+
   --token "E7GmFQs5xDLCq_h6xgErbQ"
 ```
 
