@@ -282,7 +282,10 @@ class CertificateGenerator:
         if output_filename is None:
             safe_name = "".join(c for c in recipient_name if c.isalnum() or c in " _-")
             output_filename = f"{safe_name.replace(' ', '_')}.pdf"
-        
+        else:
+            # Ensure .pdf extension
+            if not output_filename.lower().endswith('.pdf'):
+                output_filename += '.pdf'
         filepath = self.output_dir / output_filename
         
         page_width, page_height = self._get_page_size()
@@ -324,15 +327,15 @@ class CertificateGenerator:
         c.setFillColor(colors.HexColor(accent_hex))
         c.drawCentredString(page_width / 2, page_height - 2.7 * inch, recipient_name)
         
-        # Add course/achievement name
-        c.setFont("Helvetica-Oblique", 18)
-        c.setFillColor(colors.HexColor(hex_color))
-        c.drawCentredString(page_width / 2, page_height - 3.3 * inch, 
-                           f"has successfully completed")
+        # Remove course/achievement name
+        # c.setFont("Helvetica-Oblique", 18)
+        # c.setFillColor(colors.HexColor(hex_color))
+        # c.drawCentredString(page_width / 2, page_height - 3.3 * inch, 
+        #                    f"has successfully completed")
         
-        c.setFont("Helvetica-Bold", 22)
-        c.setFillColor(colors.HexColor(accent_hex))
-        c.drawCentredString(page_width / 2, page_height - 3.9 * inch, course_name)
+        # c.setFont("Helvetica-Bold", 22)
+        # c.setFillColor(colors.HexColor(accent_hex))
+        # c.drawCentredString(page_width / 2, page_height - 3.9 * inch, course_name)
         
         # Layout bottom metadata band and QR positioning
         qr_enabled = bool(self.template_config.get("qr", True)) and _HAS_QR
@@ -434,7 +437,6 @@ class CertificateGenerator:
         cert_data = {
             "certificate_id": certificate_number,
             "recipient_name": recipient_name,
-            "course_name": course_name,
             "issue_date": issue_date,
             "issuer": issuer,
             "generated_at": datetime.now().isoformat(),
@@ -725,8 +727,7 @@ def cli():
 @cli.command()
 @click.option('--input', required=True, type=click.Path(exists=True), help='JSON file with user credentials')
 @click.option('--mongo-uri', default=None, help='MongoDB URI (or use MONGODB_URI env var)')
-@click.option('--store/--no-store', default=True, help='Store credentials (default: true)')
-def create(input: str, mongo_uri: Optional[str], store: bool):
+def create(input: str, mongo_uri: Optional[str]):
     """Create a certificate by reading user credentials from JSON file"""
     try:
         with open(input, 'r') as f:
@@ -748,27 +749,21 @@ def create(input: str, mongo_uri: Optional[str], store: bool):
         cert_id = CertificateGenerator.generate_random_cert_id()
         filepath = generator.generate_certificate(
             recipient_name=user_data['name'],
-            course_name=user_data.get('course', 'Certificate of Achievement'),
+            course_name='',  # Remove course
             issue_date=user_data.get('date'),
             certificate_number=cert_id,
             output_filename=user_data.get('output'),
-            store_in_db=store,
+            store_in_db=True,  # Always store
         )
         click.echo(f"✓ Certificate created: {filepath}")
         click.echo(f"  Certificate ID: {cert_id}")
         click.echo(f"  Recipient: {user_data['name']}")
-        if 'course' in user_data:
-            click.echo(f"  Course: {user_data['course']}")
         for key, value in user_data.items():
-            if key not in ['name', 'course', 'date', 'output']:
+            if key not in ['name', 'date', 'output']:
                 click.echo(f"  {key.replace('_', ' ').title()}: {value}")
-        
-        # If a token was generated, expose it so caller can distribute it to
-        # the certificate recipient (this is the only time the raw token exists).
         token = getattr(generator, '_last_token', None)
         if token:
             click.echo(f"  Verification token (store securely): {token}")
-    
     except json.JSONDecodeError:
         click.secho(f"✗ Invalid JSON in file: {input}", fg="red")
     except Exception as e:

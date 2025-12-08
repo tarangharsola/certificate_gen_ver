@@ -1,7 +1,6 @@
 {
   "user": {
     "name": "John Doe",
-    "course": "Advanced Python Programming",
     "date": "December 08, 2025",
     "output": "John_Doe_Certificate"
   },
