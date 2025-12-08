@@ -217,10 +217,10 @@ def verify_file(file_path: str, token: Optional[str], mongo_uri: Optional[str]):
 @cli.command('verify-db')
 @click.option('--cert-id', required=True, help='Certificate ID')
 @click.option('--name', required=True, help='Recipient name')
-@click.option('--course', default=None, help='Course name (optional)')
+@click.option('--course', required=True, help='Course name')
 @click.option('--token', default=None, help='Verification token (optional)')
 @click.option('--mongo-uri', default=None, help='MongoDB URI')
-def verify_db(cert_id: str, name: str, course: Optional[str], token: Optional[str], mongo_uri: Optional[str]):
+def verify_db(cert_id: str, name: str, course: str, token: Optional[str], mongo_uri: Optional[str]):
     """Verify certificate directly against MongoDB by ID and fields."""
     # Prefer MongoDB when provided, otherwise fall back to local JSON store
     client = coll = None
