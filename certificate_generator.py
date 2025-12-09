@@ -32,11 +32,25 @@ class HiddenMetadata:
         return token, token_hash
 
     @staticmethod
+    def generate_signature(cert_data: Dict, token_hash: str, secret: Optional[str] = None) -> str:
+        """
+        "Digital signature" = HMAC over certificate core fields + token_hash.
+        This uses the same HMAC engine as checksum but on a slightly larger payload.
+        """
+        if secret is None:
+            secret = os.getenv("CERT_SECRET", "default-secret")
+        data = dict(cert_data)
+        data["token_hash"] = token_hash
+        s = json.dumps(data, sort_keys=True)
+        return hmac.new(secret.encode(), s.encode(), hashlib.sha256).hexdigest()
+
+    @staticmethod
     def embed_in_pdf_metadata(canvas_obj, cert_data: Dict):
         payload = {
             "id": cert_data["certificate_id"],
             "token_hash": cert_data["credentials"]["token_hash"],
             "checksum": cert_data["credentials"]["checksum"],
+            "signature": cert_data["credentials"]["signature"],
             "has_qr": cert_data["credentials"].get("has_qr", False),
         }
 
@@ -102,6 +116,21 @@ class CertificateGenerator:
             mask="auto",
         )
 
+        # Visible "digital signature" text ABOVE the issuer/footer area
+        # Slightly higher above the QR so it clearly stands as a signature block
+        canvas_obj.setFont("Helvetica-Oblique", 10)
+        canvas_obj.drawRightString(
+            page_width - 1 * inch,
+            y + qr_size + 0.65 * inch,
+            "Digitally signed by",
+        )
+        canvas_obj.setFont("Helvetica-Bold", 11)
+        canvas_obj.drawRightString(
+            page_width - 1 * inch,
+            y + qr_size + 0.85 * inch,
+            cert_data["issuer"],
+        )
+
     def generate_certificate(self, recipient_name, issue_date, cert_id, output_name, device):
 
         if not output_name.endswith(".pdf"):
@@ -142,7 +171,7 @@ class CertificateGenerator:
         text.textLine(f"Approximately {size_removed} of storage space was recovered.")
         c.drawText(text)
 
-        issuer = "Device Sanitization Authority"
+        issuer = "Rubix Qube"
         c.setFont("Helvetica-Bold", 12)
         c.drawString(1 * inch, 1.3 * inch, f"Issued by: {issuer}")
         c.setFont("Helvetica", 12)
@@ -160,10 +189,12 @@ class CertificateGenerator:
 
         _, token_hash = HiddenMetadata.generate_token()
         checksum = HiddenMetadata.generate_checksum(cert_data)
+        signature = HiddenMetadata.generate_signature(cert_data, token_hash)
 
         cert_data["credentials"] = {
             "token_hash": token_hash,
             "checksum": checksum,
+            "signature": signature,
             "has_qr": True,
         }
 
