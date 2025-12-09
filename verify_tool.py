@@ -57,19 +57,21 @@ def verify_file(file_path):
     payload = extract_payload_from_pdf(file_path)
     if not payload:
         click.secho("✗ No embedded certificate metadata found in PDF", fg="red")
+        click.echo("  (Metadata and QR code may be missing or were not generated.)")
         return
 
     cert_id = payload["id"]
     embedded_token_hash = payload["token_hash"]
     embedded_checksum = payload["checksum"]
+    has_qr = payload.get("has_qr", False)
 
     record = load_local_record(cert_id)
     if not record:
-        click.secho("✗ Certificate not found in credentials.json", fg="red")
+        click.secho("✗ Certificate not found in the database", fg="red")
         return
 
     if record["credentials"]["token_hash"] != embedded_token_hash:
-        click.secho("✗ Token hash mismatch", fg="red")
+        click.secho("✗ Certificate is not authentic", fg="red")
         return
 
     expected = generate_checksum({
@@ -82,13 +84,14 @@ def verify_file(file_path):
     })
 
     if expected != embedded_checksum:
-        click.secho("✗ Checksum mismatch – PDF tampered", fg="red")
+        click.secho("✗ PDF tampered", fg="red")
         return
 
     click.secho("✓ Certificate VERIFIED", fg="green")
     click.echo(f"  Certificate ID : {cert_id}")
     click.echo(f"  Recipient      : {record['recipient_name']}")
     click.echo(f"  Issue Date     : {record['issue_date']}")
+    click.echo(f"  QR Code        : {'PRESENT' if has_qr else 'MISSING / NOT EMBEDDED'}")
 
 
 if __name__ == "__main__":

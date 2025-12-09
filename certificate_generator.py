@@ -6,11 +6,14 @@ import hmac
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+from io import BytesIO
 
 from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
+import qrcode
 import click
 
 
@@ -34,6 +37,7 @@ class HiddenMetadata:
             "id": cert_data["certificate_id"],
             "token_hash": cert_data["credentials"]["token_hash"],
             "checksum": cert_data["credentials"]["checksum"],
+            "has_qr": cert_data["credentials"].get("has_qr", False),
         }
 
         hidden_str = "CertGen|" + json.dumps(payload, separators=(",", ":"))
@@ -67,6 +71,37 @@ class CertificateGenerator:
             json.dump(data, f, indent=2)
             f.truncate()
 
+    def _draw_qr(self, canvas_obj, page_width, page_height, cert_data: Dict):
+        qr_payload = {
+            "certificate_id": cert_data["certificate_id"],
+            "recipient_name": cert_data["recipient_name"],
+            "issue_date": cert_data["issue_date"],
+            "issuer": cert_data["issuer"],
+        }
+
+        qr_text = json.dumps(qr_payload, separators=(",", ":"))
+        img = qrcode.make(qr_text)
+
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+
+        qr_image = ImageReader(buf)
+
+        qr_size = 1.5 * inch
+        x = page_width - qr_size - 1 * inch
+        y = 0.7 * inch
+
+        canvas_obj.drawImage(
+            qr_image,
+            x,
+            y,
+            width=qr_size,
+            height=qr_size,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+
     def generate_certificate(self, recipient_name, issue_date, cert_id, output_name, device):
 
         if not output_name.endswith(".pdf"):
@@ -76,8 +111,11 @@ class CertificateGenerator:
         page_width, page_height = landscape(A4)
 
         c = canvas.Canvas(str(output_path), pagesize=(page_width, page_height))
+
         c.setFillColor(colors.white)
         c.rect(0, 0, page_width, page_height, fill=True)
+
+        c.setFillColor(colors.black)
 
         c.setFont("Helvetica-Bold", 40)
         c.drawCentredString(page_width / 2, page_height - 1.5 * inch, "Data Sanitization Certificate")
@@ -126,7 +164,10 @@ class CertificateGenerator:
         cert_data["credentials"] = {
             "token_hash": token_hash,
             "checksum": checksum,
+            "has_qr": True,
         }
+
+        self._draw_qr(c, page_width, page_height, cert_data)
 
         HiddenMetadata.embed_in_pdf_metadata(c, cert_data)
         c.save()
